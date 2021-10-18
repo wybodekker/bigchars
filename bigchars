@@ -1,0 +1,116 @@
+#!/usr/bin/env ruby
+# encoding: utf-8
+
+ MYNAME = File.basename($0)
+Version = '1.01'
+
+Help=
+<<'DOC'
+= bigchars - print big characters, one per page
+
+= Synopsis
+bigchars [options] [string]	
+
+== Options
+
+-h			print this help and exit
+-H, --help		show full documentation and exit
+-V, --version		print version and exit
+-f, --font=NAME		font used for printing the characters;
+			default: Calibri
+-s, --size=POINTSIZE	size in points; default: 500
+-o, --out=FILENAME	the filename for PDF output;
+			the default is bigchars.pdf,
+			the extension is optional.
+
+= Description
+bigchars creates a PDF file containing one large character on each
+page for each character in /string/. The default is to print all ASCII
+symbols (33-126) in 500 point Calibri.
+The default font is Calibri, for other fonts, scan your system for
+|.ttf| and |.otf| files and use those, with or without extension.
+        
+= Dependencies
+You need luatex to run this program
+
+= Author
+[Wybo Dekker](wybo@dekkerdocumenten.nl)
+
+= Copyright
+Released under the [GNU General Public License](www.gnu.org/copyleft/gpl.html)
+DOC
+
+require 'erb'
+require 'optparse'
+
+def quit(mess=nil,exitvalue=1)
+   puts mess if mess
+   exit exitvalue
+end
+
+def handle_options
+   ARGV.options do |opts|
+     opts.banner = "#{MYNAME} - print big characters, one per page\n"
+     opts.banner << "Usage: #{MYNAME} [options] [string]\n"
+     opts.banner << "By default, string is ASCII 33..126 concatenated."
+     opts.separator ''
+     opts.summary_width=23
+     opts.summary_indent=''
+   
+     opts.on('-h','print this help and exit') do
+        quit opts.to_a.delete_if { |x| x =~ /—$/},0
+     end
+     opts.on('-H','--help','show full documentation and exit') do
+        quit Help,0
+     end
+     opts.on('-V','--version','print version and exit') do
+        quit Version,0
+     end
+     opts.on('-f','--font=NAME', String,
+        "font used for printing the characters;",
+        "default: Calibri") do |v|
+         @font = v
+     end
+     opts.on('-s','--size=POINTSIZE', Integer,
+        "size in points; default: 500") do |v|
+         @size = v
+     end
+     opts.on('-o','--out=FILENAME', String,
+        "the filename for PDF output;",
+        "the default is bigchars.pdf,",
+        "the extension is optional.") do |v|
+         @out = v
+     end
+     opts.on('-I','—') do
+       system("instscript #{MYNAME}") 
+       exit
+     end
+     opts.parse!
+   end or exit 1
+end
+
+@font,     @size, tex,              @out =
+'Calibri', 500,  "/tmp/#{$$}.tex", 'bigchars'
+
+handle_options
+if ARGV[0]
+   @arr=ARGV[0].split('').map{|x| x[0]}
+else
+   @arr=('!'..'~').to_a
+end
+
+@out.sub(/.pdf/,'')
+
+open(tex,'w') do |f| f.print ERB.new(<<'EOF',0,'%').result(binding); end
+\nopagenumbers\parindent0pt
+\pagewidth=210mm\pageheight=297mm
+\input luaotfload.sty
+\font\big=<%= @font %> at <%= @size %>pt\big
+% @arr.each do |v|
+\char`<%= v.sub(/([%\\])/,'\\\\\1') %>\eject
+% end
+\bye
+EOF
+system("luatex -jobname=#{@out} -interaction=batchmode #{tex} > /dev/null") or 
+  quit "luatex error; font not available?"
+File.delete("#{@out}.log") if File.exist?("#{@out}.log")
