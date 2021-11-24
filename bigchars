@@ -1,8 +1,8 @@
 #!/usr/bin/env ruby
 # encoding: utf-8
 
- MYNAME = File.basename($0)
-Version = '1.01'
+ Myname = File.basename($0)
+Version = '1.02'
 
 Help=
 <<'DOC'
@@ -42,75 +42,95 @@ DOC
 
 require 'erb'
 require 'optparse'
+require 'ostruct'
+require 'tempfile'
+require 'colorize'
 
-def quit(mess=nil,exitvalue=1)
-   puts mess if mess
-   exit exitvalue
+def die(m)
+   STDERR.puts "#{Myname}: #{m}".red
+   exit 1
 end
 
-def handle_options
-   ARGV.options do |opts|
-     opts.banner = "#{MYNAME} - print big characters, one per page\n"
-     opts.banner << "Usage: #{MYNAME} [options] [string]\n"
-     opts.banner << "By default, string is ASCII 33..126 concatenated."
-     opts.separator ''
-     opts.summary_width=23
-     opts.summary_indent=''
-   
-     opts.on('-h','print this help and exit') do
-        quit opts.to_a.delete_if { |x| x =~ /—$/},0
-     end
-     opts.on('-H','--help','show full documentation and exit') do
-        quit Help,0
-     end
-     opts.on('-V','--version','print version and exit') do
-        quit Version,0
-     end
-     opts.on('-f','--font=NAME', String,
-        "font used for printing the characters;",
-        "default: Calibri") do |v|
-         @font = v
-     end
-     opts.on('-s','--size=POINTSIZE', Integer,
-        "size in points; default: 500") do |v|
-         @size = v
-     end
-     opts.on('-o','--out=FILENAME', String,
-        "the filename for PDF output;",
-        "the default is bigchars.pdf,",
-        "the extension is optional.") do |v|
-         @out = v
-     end
-     opts.on('-I','—') do
-       system("instscript #{MYNAME}") 
-       exit
-     end
-     opts.parse!
-   end or exit 1
+def help
+  system("echo \"#{Help}\" | less -P#{Myname}-#{Version.tr('.','·')}")
 end
 
-@font,     @size, tex,              @out =
-'Calibri', 500,  "/tmp/#{$$}.tex", 'bigchars'
+$o = OpenStruct.new(
+   :font => 'Calibri',
+   :size => 500,
+   :out =>  'bigchars'
+)
 
-handle_options
+OptionParser.new(
+   banner = <<~EOD,
+      #{Myname} - print big characters, one per page\n
+      Usage: #{Myname} [options] [string]\n
+      By default, string is ASCII 33..126 concatenated.\n
+      Options:
+      EOD
+   width = 23,
+   indent = ''
+) do |opts|
+
+   opts.on('-h','print this help and exit') do
+      puts opts.to_a.delete_if { |x| x =~ /—$/}
+      exit
+   end
+   opts.on('-H','--help','show full documentation and exit') do
+      help
+      exit
+   end
+   opts.on('-V','--version','print version and exit') do
+      puts Version
+      exit
+   end
+   opts.on('-f','--font=NAME', String,
+      "font used for printing the characters;",
+      "default: Calibri") do |v|
+       $o.font = v
+   end
+   opts.on('-s','--size=POINTSIZE', Integer,
+      "size in points; default: 500") do |v|
+       $o.size = v
+   end
+   opts.on('-o','--out=FILENAME', String,
+      "the filename for PDF output;",
+      "the default is bigchars.pdf,",
+      "the extension is optional.") do |v|
+       $o.out = v
+   end
+   opts.on('-I','—') do
+     system("instscript #{Myname}") 
+     exit
+   end
+   opts.parse!
+end
+
+tex = Tempfile.new
 if ARGV[0]
-   @arr=ARGV[0].split('').map{|x| x[0]}
+   arr = ARGV[0].split('').map{|x| x[0]}
 else
-   @arr=('!'..'~').to_a
+   arr = ('!'..'~').to_a
 end
 
-@out.sub(/.pdf/,'')
+$o.out.sub(/.pdf/,'')
 
-open(tex,'w') do |f| f.print ERB.new(<<'EOF',0,'%').result(binding); end
-\nopagenumbers\parindent0pt
-\pagewidth=210mm\pageheight=297mm
-\input luaotfload.sty
-\font\big=<%= @font %> at <%= @size %>pt\big
-% @arr.each do |v|
-\char`<%= v.sub(/([%\\])/,'\\\\\1') %>\eject
-% end
-\bye
-EOF
-system("luatex -jobname=#{@out} -interaction=batchmode #{tex} > /dev/null") or 
-  quit "luatex error; font not available?"
-File.delete("#{@out}.log") if File.exist?("#{@out}.log")
+erb = <<~'EOF'
+	\nopagenumbers\parindent0pt
+	\pagewidth=210mm\pageheight=297mm
+	\input luaotfload.sty
+	\font\big=<%= $o.font %> at <%= $o.size %>pt\big
+	% arr.each do |v|
+	\char`<%= v.sub(/([%\\])/,'\\\\\1') %>\eject
+	% end
+	\bye
+	EOF
+
+open(tex,'w') do |f|
+   f.print ERB.new(erb,0,'%').result(binding)
+end
+err = `luatex -jobname=#{$o.out} -interaction=batchmode #{tex.path}`
+if $?.exitstatus > 0
+  die "luatex error:\n%s" % err
+end
+File.delete("#{$o.out}.log") if File.exist?("#{$o.out}.log")
