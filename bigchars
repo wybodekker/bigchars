@@ -2,7 +2,7 @@
 # encoding: utf-8
 
  Myname = File.basename($0)
-Version = '1.02'
+Version = '1.03'
 
 Help=
 <<'DOC'
@@ -127,7 +127,7 @@ erb = <<~'EOF'
 	EOF
 
 open(tex,'w') do |f|
-   f.print ERB.new(erb,0,'%').result(binding)
+   f.print ERB.new(erb,trim_mode:'%').result(binding)
 end
 err = `luatex -jobname=#{$o.out} -interaction=batchmode #{tex.path}`
 if $?.exitstatus > 0
